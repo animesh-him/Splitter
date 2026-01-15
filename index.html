@@ -6,11 +6,12 @@
   <style>
     body {
       font-family: Arial, sans-serif;
-      background: #f5f5f5;
-      padding: 20px;
+      background: #f4f4f4;
+      padding: 16px;
     }
     h1, h2 {
       text-align: center;
+      margin: 16px 0;
     }
     .controls {
       text-align: center;
@@ -19,8 +20,8 @@
     table {
       width: 100%;
       border-collapse: collapse;
-      margin-bottom: 20px;
       background: #fff;
+      margin-bottom: 20px;
     }
     th, td {
       border: 1px solid #ccc;
@@ -33,19 +34,28 @@
     }
     input {
       width: 90%;
-      padding: 4px;
+      padding: 6px;
+      box-sizing: border-box;
     }
     input:disabled {
       background: #e0e0e0;
       color: #888;
     }
     button {
-      padding: 10px 16px;
+      display: block;
+      margin: 0 auto 20px auto;
+      padding: 10px 18px;
       font-size: 16px;
       cursor: pointer;
     }
-    .positive { color: green; font-weight: bold; }
-    .negative { color: red; font-weight: bold; }
+    .positive {
+      color: green;
+      font-weight: bold;
+    }
+    .negative {
+      color: red;
+      font-weight: bold;
+    }
     .summary {
       background: #fff;
       border: 1px solid #ccc;
@@ -54,7 +64,7 @@
     }
   </style>
 </head>
-<body><h1>Expense Splitter (Frontend Only)</h1><div class="controls">
+<body><h1>Expense Splitter</h1><div class="controls">
   <label>
     Total Number of Participants:&nbsp;
     <input type="number" id="participantCount" min="1" max="50" />
@@ -70,9 +80,9 @@
     </tr>
   </thead>
   <tbody></tbody>
-</table><div style="text-align:center;">
-  <button onclick="calculate()">Calculate Split</button>
-</div><h2>Who Pays Whom</h2>
+</table><button id="calcBtn">Calculate Split</button>
+
+<h2>Who Pays Whom</h2>
 <table id="settlementTable">
   <thead>
     <tr>
@@ -87,64 +97,73 @@
 </div><script>
 const tbody = document.querySelector('#expenseTable tbody');
 const participantInput = document.getElementById('participantCount');
+const calcBtn = document.getElementById('calcBtn');
+const summaryBox = document.getElementById('summaryBox');
 
 const DEFAULT_ROWS = 5;
 
-function renderRows(count, enabledCount = 0) {
+function renderRows(totalRows, enabledRows) {
   tbody.innerHTML = '';
-  for (let i = 0; i < count; i++) {
-    const enabled = i < enabledCount;
-    const row = document.createElement('tr');
-    row.innerHTML = `
+  for (let i = 0; i < totalRows; i++) {
+    const enabled = i < enabledRows;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
       <td>${i + 1}</td>
       <td><input ${enabled ? '' : 'disabled'} placeholder="Participant ${i + 1}" /></td>
       <td><input type="number" min="0" value="0" ${enabled ? '' : 'disabled'} /></td>
       <td class="perHead">-</td>
       <td class="net">-</td>
     `;
-    tbody.appendChild(row);
+    tbody.appendChild(tr);
   }
 }
 
-// Initial greyed-out rows
+// Initial state: 5 greyed-out rows
 renderRows(DEFAULT_ROWS, 0);
 
 participantInput.addEventListener('input', () => {
-  const count = parseInt(participantInput.value);
+  const count = parseInt(participantInput.value, 10);
   if (!count || count < 1) {
     renderRows(DEFAULT_ROWS, 0);
   } else {
     renderRows(count, count);
   }
+
+  document.querySelector('#settlementTable tbody').innerHTML = '';
+  summaryBox.innerHTML = '-';
 });
 
+calcBtn.addEventListener('click', calculate);
+
 function calculate() {
-  const rows = [...tbody.children].filter(r => !r.querySelector('input').disabled);
-  if (!rows.length) return;
+  const rows = Array.from(tbody.children);
+  const activeRows = rows.filter(r => !r.querySelector('input').disabled);
+  if (!activeRows.length) return;
 
-  let total = 0;
   let people = [];
+  let total = 0;
 
-  rows.forEach((row, i) => {
+  activeRows.forEach((row, idx) => {
     const nameInput = row.children[1].querySelector('input');
     const expenseInput = row.children[2].querySelector('input');
-    const name = nameInput.value || `Participant ${i + 1}`;
+    const name = nameInput.value || `Participant ${idx + 1}`;
     const expense = parseFloat(expenseInput.value) || 0;
     total += expense;
-    people.push({ name, expense, net: 0 });
+    people.push({ name, expense });
   });
 
   const perHead = total / people.length;
 
-  rows.forEach((row, i) => {
+  activeRows.forEach((row, i) => {
     const net = +(people[i].expense - perHead).toFixed(2);
     people[i].net = net;
-    row.children[3].innerText = perHead.toFixed(2);
-    row.children[4].innerText = net.toFixed(2);
-    row.children[4].className = net >= 0 ? 'positive' : 'negative';
+    row.querySelector('.perHead').innerText = perHead.toFixed(2);
+    const netCell = row.querySelector('.net');
+    netCell.innerText = net.toFixed(2);
+    netCell.className = 'net ' + (net >= 0 ? 'positive' : 'negative');
   });
 
-  document.getElementById('summaryBox').innerHTML = `
+  summaryBox.innerHTML = `
     <b>Total Participants:</b> ${people.length}<br>
     <b>Total Expense:</b> ${total.toFixed(2)}<br>
     <b>Per Head Cost:</b> ${perHead.toFixed(2)}
@@ -157,22 +176,19 @@ function settle(people) {
   const settlementBody = document.querySelector('#settlementTable tbody');
   settlementBody.innerHTML = '';
 
-  // Create immutable buckets so receivers never become payers
-  let receivers = people
+  const receivers = people
     .filter(p => p.net > 0)
-    .map(p => ({ name: p.name, remaining: +p.net.toFixed(2) }));
+    .map(p => ({ name: p.name, remaining: p.net }));
 
-  let payers = people
+  const payers = people
     .filter(p => p.net < 0)
-    .map(p => ({ name: p.name, remaining: +(-p.net).toFixed(2) }));
+    .map(p => ({ name: p.name, remaining: -p.net }));
 
   let i = 0, j = 0;
 
   while (i < payers.length && j < receivers.length) {
     const payer = payers[i];
     const receiver = receivers[j];
-
-    // Payer always pays, receiver always receives
     const amount = Math.min(payer.remaining, receiver.remaining);
 
     settlementBody.innerHTML += `
@@ -186,10 +202,9 @@ function settle(people) {
     payer.remaining -= amount;
     receiver.remaining -= amount;
 
-    if (payer.remaining <= 0.009) i++;
-    if (receiver.remaining <= 0.009) j++;
+    if (payer.remaining <= 0.01) i++;
+    if (receiver.remaining <= 0.01) j++;
   }
-}
 }
 </script></body>
 </html>
